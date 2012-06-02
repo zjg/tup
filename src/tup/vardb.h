@@ -73,7 +73,6 @@ TAILQ_HEAD(string_list_head, string_list);
 
 struct node_var_entry {
    struct string_tree var;
-   struct tent_list_head nodes;
    struct string_list_head values;
    int count;
 };
@@ -81,13 +80,13 @@ struct node_var_entry {
 int nodedb_init(struct node_vardb *v);
 int nodedb_close(struct node_vardb *v);
 int nodedb_set(struct node_vardb *v, const char *var,
-               struct tup_entry *tent, const char* path_from_root);
+               const char* path_from_root);
 int nodedb_append(struct node_vardb *v, const char *var,
-                  struct tup_entry *tent, const char* path_from_root);
+                  const char* path_from_root);
 int nodedb_len(struct node_vardb *v, const char *var, int varlen,
-               tupid_t relative_to, struct variant *variant);
+               tupid_t relative_to, tupid_t root_tupid);
 int nodedb_copy(struct node_vardb *v, const char *var, int varlen,
-                char **dest, tupid_t relative_to, struct variant *variant);
+                char **dest, tupid_t relative_to, tupid_t root_tupid);
 struct node_var_entry *nodedb_get(struct node_vardb *v,
                                   const char *var, int varlen);
 

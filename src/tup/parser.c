@@ -1435,9 +1435,9 @@ static int set_variable(struct tupfile *tf, char *line)
 		
 		/* var+1 to skip the leading '&' */
 		if(append)
-			rc = nodedb_append(&tf->node_db, var+1, tent, path);
+			rc = nodedb_append(&tf->node_db, var+1, path);
 		else
-			rc = nodedb_set(&tf->node_db, var+1, tent, path);
+			rc = nodedb_set(&tf->node_db, var+1, path);
 		
 		free(path);
 	} else {
@@ -3170,7 +3170,7 @@ static char *eval(struct tupfile *tf, const char *string, int allow_nodes)
 
 				var = s + 2;
 				vlen = nodedb_len(&tf->node_db, var, rparen-var,
-				                  tf->curtent->tnode.tupid, tf->variant);
+				                  tf->curtent->tnode.tupid, tf->variant->dtnode.tupid);
 				if (vlen < 0)
 					return NULL;
 				len += vlen;
@@ -3282,7 +3282,7 @@ static char *eval(struct tupfile *tf, const char *string, int allow_nodes)
 
 				var = s + 2;
 				if (nodedb_copy(&tf->node_db, var, rparen-var, &p,
-				                tf->curtent->tnode.tupid, tf->variant) < 0)
+				                tf->curtent->tnode.tupid, tf->variant->dtnode.tupid) < 0)
 					return NULL;
 				s = rparen + 1;
 			} else {

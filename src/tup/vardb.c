@@ -25,9 +25,7 @@
 #include <string.h>
 
 #include "entry.h"
-
-#include "variant.h"
-#include "db_types.h"
+#include "compat.h"
 
 int vardb_init(struct vardb *v)
 {
@@ -262,25 +260,6 @@ void vardb_dump(struct vardb *v)
 	}
 }
 
-// todo - move this to entry.c ?
-static int add_tent(struct tent_list_head *head, struct tup_entry *tent)
-{
-	struct tent_list *tlist = NULL;
-
-	/* not an error, just add nothing to the list */
-	if (!tent)
-		return 0;
-
-	tlist = malloc(sizeof *tlist);
-	if(!tlist) {
-		perror("malloc");
-		return -1;
-	}
-	tlist->tent = tent;
-	TAILQ_INSERT_TAIL(head, tlist, list);
-	return 0;
-}
-
 int nodedb_init(struct node_vardb *v)
 {
 	RB_INIT(&v->root);
@@ -297,7 +276,6 @@ int nodedb_close(struct node_vardb *v)
 		struct node_var_entry *ve = container_of(st, struct node_var_entry, var);
 		string_tree_rm(&v->root, st);
 		free(st->s);
-		free_tent_list(&ve->nodes);
 		while(!TAILQ_EMPTY(&ve->values)) {
 			slist = TAILQ_FIRST(&ve->values);
 			TAILQ_REMOVE(&ve->values, slist, list);
@@ -308,7 +286,7 @@ int nodedb_close(struct node_vardb *v)
 	return 0;
 }
 
-int nodedb_set(struct node_vardb *v, const char *var, struct tup_entry *tent,
+int nodedb_set(struct node_vardb *v, const char *var,
 	       const char* path_from_root)
 {
 	struct string_tree *st;
@@ -319,15 +297,12 @@ int nodedb_set(struct node_vardb *v, const char *var, struct tup_entry *tent,
 	st = string_tree_search(&v->root, var, strlen(var));
 	if(st) {
 		ve = container_of(st, struct node_var_entry, var);
-		free_tent_list(&ve->nodes);
 		while(!TAILQ_EMPTY(&ve->values)) {
 			slist = TAILQ_FIRST(&ve->values);
 			TAILQ_REMOVE(&ve->values, slist, list);
 			free(slist);
 		}
 		ve->count = 0;
-		if (add_tent(&ve->nodes, tent) < 0)
-			return -1;
 	} else {
 		ve = malloc(sizeof *ve);
 		if(!ve) {
@@ -345,24 +320,16 @@ int nodedb_set(struct node_vardb *v, const char *var, struct tup_entry *tent,
 		memcpy(ve->var.s, var, ve->var.len);
 		ve->var.s[ve->var.len] = 0;
 
-		TAILQ_INIT(&ve->nodes);
-		if (add_tent(&ve->nodes, tent) < 0) {
-			free(ve->var.s);
-			free(ve);
-			return -1;
-		}
 		
 		TAILQ_INIT(&ve->values);
 		ve->count = 0;
 
 		if(string_tree_insert(&v->root, &ve->var) < 0) {
-			fprintf(stderr, "nodedb_set: Error inserting into tree\n");
+			fprintf(stderr, "tup error: nodedb_set: Error inserting into tree\n");
 			free(ve->var.s);
-			free_tent_list(&ve->nodes);
 			free(ve);
 			return -1;
 		}
-
 		v->count++;
 	}
 	
@@ -386,7 +353,7 @@ int nodedb_set(struct node_vardb *v, const char *var, struct tup_entry *tent,
 	return 0;
 }
 
-int nodedb_append(struct node_vardb *v, const char *var, struct tup_entry *tent,
+int nodedb_append(struct node_vardb *v, const char *var,
 		  const char* path_from_root)
 {
 	struct string_tree *st;
@@ -396,8 +363,6 @@ int nodedb_append(struct node_vardb *v, const char *var, struct tup_entry *tent,
 	st = string_tree_search(&v->root, var, strlen(var));
 	if(st) {
 		struct node_var_entry *ve = container_of(st, struct node_var_entry, var);
-		if (add_tent(&ve->nodes, tent) < 0)
-			return -1;
 		
 		slist = malloc(sizeof *slist);
 		if(!slist) {
@@ -417,53 +382,26 @@ int nodedb_append(struct node_vardb *v, const char *var, struct tup_entry *tent,
 		ve->count++;
 		return 0;
 	} else {
-		return nodedb_set(v, var, tent, path_from_root);
+		return nodedb_set(v, var, path_from_root);
 	}
 }
 
 int nodedb_len(struct node_vardb *v, const char *var, int varlen,
-               tupid_t relative_to, struct variant *variant)
+               tupid_t relative_to, tupid_t root_tupid)
 {
 	struct node_var_entry *ve = NULL;
 	int len = 0;
 	int vlen = -1;
 	int first = 0;
 	int rc = -1;
-	// struct tent_list *tlist = NULL;
 
 	ve = nodedb_get(v, var, varlen);
 	if(!ve)
 		return 0;	/* not found, strlen("") == 0 */
 
-	// TAILQ_FOREACH(tlist, &ve->nodes, list) {
-	// 	if(!first) {
-	// 		first = 1;
-	// 	} else {
-	// 		len += 1;  /* space */
-	// 	}
-	// 	rc = get_relative_dir(NULL, relative_to,
-	// 	                      tlist->tent->tnode.tupid,
-	// 	                      &vlen);
-	// 	if (rc < 0 || vlen < 0)
-	// 		return -1;
-		
-	// 	/* if we are in a variant and pointing to a tupid outside the variant,
-	// 	 * remove one level of ../ from the path, so that the path refers
-	// 	 * to the same file but within the variant tree
-	// 	 */
-	// 	if(tlist->tent->type == TUP_NODE_FILE && !variant->root_variant) {
-	// 		struct tup_entry *srctent = NULL;
-	// 		if(variant_get_srctent(variant, tlist->tent->tnode.tupid, &srctent) < 0)
-	// 			return -1;
-	// 		if(!srctent) {
-	// 			vlen -= 3;
-	// 		}
-	// 	}
-	// 	len += vlen;
-	// }
-	
-	if (relative_to != variant->dtnode.tupid) {
-		rc = get_relative_dir(NULL, relative_to, variant->dtnode.tupid, &vlen);
+	/* we don't want './' paths */
+	if (relative_to != root_tupid) {
+		rc = get_relative_dir(NULL, relative_to, root_tupid, &vlen);
 		if(rc < 0 || vlen < 0) return -1;
 	}
 	
@@ -483,57 +421,17 @@ int nodedb_len(struct node_vardb *v, const char *var, int varlen,
 }
 
 int nodedb_copy(struct node_vardb *v, const char *var, int varlen, char **dest,
-                tupid_t relative_to, struct variant *variant)
+                tupid_t relative_to, tupid_t root_tupid)
 {
 	struct node_var_entry *ve = NULL;
 	int clen = 0;
 	int first = 0;
 	int rc = -1;
-	// struct tent_list *tlist = NULL;
 
 	ve = nodedb_get(v, var, varlen);
 	if(!ve)
 		return 0;	/* not found, string is "" */
 
-	// TAILQ_FOREACH(tlist, &ve->nodes, list) {
-	// 	if(!first) {
-	// 		first = 1;
-	// 	} else {
-	// 		(*dest)[0] = ' ';
-	// 		(*dest)++;
-	// 	}
-	// 	rc = get_relative_dir(*dest, relative_to,
-	// 	                      tlist->tent->tnode.tupid,
-	// 	                      &clen);
-	// 	if (rc < 0 || clen < 0)
-	// 		return -1;
-		
-	// 	fprintf(stderr, "nodedb_copy: relative_to: %lli, %lli\n",
-	// 		relative_to, tlist->tent->tnode.tupid);
-		
-	// 	/* if we are in a variant and pointing to a tupid outside the variant,
-	// 	 * remove one level of ../ from the path, so that the path refers
-	// 	 * to the same file but within the variant tree
-	// 	 */
-	// 	//if(tlist->tent->type != TUP_NODE_GENERATED && !variant->root_variant) {
-	// 	if(tlist->tent->type == TUP_NODE_FILE && !variant->root_variant) {
-	// 		struct tup_entry *srctent = NULL;
-	// 		if(variant_get_srctent(variant, tlist->tent->tnode.tupid, &srctent) < 0)
-	// 			return -1;
-	// 		if(!srctent) {
-	// 			fprintf(stderr, "nodedb_copy: node is src file outside variant, changing path...\n");
-	// 			fprintf(stderr, "nodedb_copy: orig path : '%.*s'\n", clen, *dest);
-				
-	// 			memmove(*dest, (*dest) + 3, clen - 3);
-	// 			clen -= 3;
-				
-	// 			fprintf(stderr, "nodedb_copy: after path: '%.*s'\n", clen, *dest);
-	// 		}
-	// 	}
-
-	// 	(*dest) += clen;
-	// }
-	
 	struct string_list *slist;
 	TAILQ_FOREACH(slist, &ve->values, list) {
 		if(!first) {
@@ -544,8 +442,9 @@ int nodedb_copy(struct node_vardb *v, const char *var, int varlen, char **dest,
 		}
 		clen = 0;
 		
-		if (relative_to != variant->dtnode.tupid) {
-			rc = get_relative_dir(*dest, relative_to, variant->dtnode.tupid, &clen);
+		/* we don't want './' paths */
+		if (relative_to != root_tupid) {
+			rc = get_relative_dir(*dest, relative_to, root_tupid, &clen);
 			if (rc < 0 || clen < 0)
 				return -1;
 			(*dest) += clen;
