@@ -1407,11 +1407,39 @@ static int set_variable(struct tupfile *tf, char *line)
 
 			}
 		}
+		
+		
+		/* figure out the referenced path, relative to the variant root */
+		char* path = NULL;
+		if (tf->variant->dtnode.tupid == tf->curtent->tnode.tupid) {
+			path = malloc(strlen(value) + 1);
+			strcpy(path, value);
+			path[strlen(value)] = 0;
+		} else {
+			int len = 0;
+			
+			if(get_relative_dir(NULL, tf->variant->dtnode.tupid,
+			                    tf->curtent->tnode.tupid, &len) < 0)
+				return -1;
+			path = malloc(len + strlen(value) + 2); /* null terminator + path sep */
+			if(!path)
+				return -1;
+			if(get_relative_dir(path, tf->variant->dtnode.tupid,
+			                    tf->curtent->tnode.tupid, &len) < 0)
+				return -1;
+			
+			strcpy(path + len, PATH_SEP_STR);
+			strcpy(path + len + 1, value);
+		}
+		fprintf(stderr, "set_variable: node var '%s' is '%s' from root\n", value, path);
+		
 		/* var+1 to skip the leading '&' */
 		if(append)
-			rc = nodedb_append(&tf->node_db, var+1, tent);
+			rc = nodedb_append(&tf->node_db, var+1, tent, path);
 		else
-			rc = nodedb_set(&tf->node_db, var+1, tent);
+			rc = nodedb_set(&tf->node_db, var+1, tent, path);
+		
+		free(path);
 	} else {
 		if(append)
 			rc = vardb_append(&tf->vdb, var, value);

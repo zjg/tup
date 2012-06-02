@@ -64,17 +64,26 @@ struct node_vardb {
    int count;
 };
 
+struct string_list {
+   char* s;
+   int len;
+   TAILQ_ENTRY(string_list) list;
+};
+TAILQ_HEAD(string_list_head, string_list);
+
 struct node_var_entry {
    struct string_tree var;
    struct tent_list_head nodes;
+   struct string_list_head values;
+   int count;
 };
 
 int nodedb_init(struct node_vardb *v);
 int nodedb_close(struct node_vardb *v);
 int nodedb_set(struct node_vardb *v, const char *var,
-               struct tup_entry *tent);
+               struct tup_entry *tent, const char* path_from_root);
 int nodedb_append(struct node_vardb *v, const char *var,
-                  struct tup_entry *tent);
+                  struct tup_entry *tent, const char* path_from_root);
 int nodedb_len(struct node_vardb *v, const char *var, int varlen,
                tupid_t relative_to, struct variant *variant);
 int nodedb_copy(struct node_vardb *v, const char *var, int varlen,
