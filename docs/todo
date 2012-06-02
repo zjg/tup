@@ -174,7 +174,6 @@ html:
    - or checkout the project as a subdirectory: tup init at a higher level, tup upd
 
 node-variables:
-   * trying to store an absolute path in a node var?
-      - with full_deps on?
-   * logic might be a whole bunch cleaner if we just store the path relative to the root, rather than storing the tupid (would be easier with variants I think)
+   * trying to store an absolute path in a node var with full_deps on
+      - currently works if you add the node var after the full deps have been found
    
