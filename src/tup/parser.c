@@ -1403,10 +1403,10 @@ static int set_variable(struct tupfile *tf, char *line)
 			if(!tent) {
 				fprintf(tf->f, "tup error: Unable to find tup entry for file '%s' in node reference declaration.\n", value);
 				return -1;
-			} else {
-
 			}
 		}
+		/* we don't actually use the tent we found; it is just to make
+		   sure that the node variable actually refers to a valid file */
 		
 		
 		/* figure out the referenced path, relative to the variant root */
@@ -1435,11 +1435,13 @@ static int set_variable(struct tupfile *tf, char *line)
 		
 		/* var+1 to skip the leading '&' */
 		if(append)
-			rc = nodedb_append(&tf->node_db, var+1, path);
+			rc = nodedb_append(&tf->node_db, var+1, value,
+					   tf->curtent->tnode.tupid,
+					   tf->variant->dtnode.tupid);
 		else
-			rc = nodedb_set(&tf->node_db, var+1, path);
-		
-		free(path);
+			rc = nodedb_set(&tf->node_db, var+1, value,
+					tf->curtent->tnode.tupid,
+					tf->variant->dtnode.tupid);
 	} else {
 		if(append)
 			rc = vardb_append(&tf->vdb, var, value);
@@ -1447,7 +1449,7 @@ static int set_variable(struct tupfile *tf, char *line)
 			rc = vardb_set(&tf->vdb, var, value, NULL);
 	}
 	if(rc < 0) {
-		fprintf(tf->f, "Error setting variable '%s'\n", var);
+		fprintf(tf->f, "tup error: Error setting variable '%s'\n", var);
 		return -1;
 	}
 	free(var);

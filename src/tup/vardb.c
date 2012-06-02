@@ -117,7 +117,7 @@ struct var_entry *vardb_set2(struct vardb *v, const char *var, int varlen,
 		ve->tent = tent;
 
 		if(string_tree_insert(&v->root, &ve->var) < 0) {
-			fprintf(stderr, "vardb_set: Error inserting into tree\n");
+			fprintf(stderr, "tup error: vardb_set: Error inserting into tree\n");
 			free(ve->value);
 			free(ve->var.s);
 			free(ve);
@@ -267,41 +267,94 @@ int nodedb_init(struct node_vardb *v)
 	return 0;
 }
 
+static void free_string_list(struct string_list_head *slist_head)
+{
+	while(!TAILQ_EMPTY(slist_head)) {
+		struct string_list *slist = TAILQ_FIRST(slist_head);
+		TAILQ_REMOVE(slist_head, slist, list);
+		free(slist->s);
+		free(slist);
+	}
+}
+
 int nodedb_close(struct node_vardb *v)
 {
 	struct string_tree *st;
-	struct string_list *slist;
 
 	while((st = RB_ROOT(&v->root)) != NULL) {
 		struct node_var_entry *ve = container_of(st, struct node_var_entry, var);
 		string_tree_rm(&v->root, st);
 		free(st->s);
-		while(!TAILQ_EMPTY(&ve->values)) {
-			slist = TAILQ_FIRST(&ve->values);
-			TAILQ_REMOVE(&ve->values, slist, list);
-			free(slist);
-		}
+		free_string_list(&ve->values);
 		free(ve);
 	}
 	return 0;
 }
 
-int nodedb_set(struct node_vardb *v, const char *var,
-	       const char* path_from_root)
+static int nodedb_add_path(struct node_var_entry *ve, const char* value,
+			   tupid_t cur_tupid, tupid_t root_tupid)
 {
-	struct string_tree *st;
-	struct node_var_entry *ve;
 	struct string_list *slist;
-
-	// todo - use nodedb_get
-	st = string_tree_search(&v->root, var, strlen(var));
-	if(st) {
-		ve = container_of(st, struct node_var_entry, var);
-		while(!TAILQ_EMPTY(&ve->values)) {
-			slist = TAILQ_FIRST(&ve->values);
-			TAILQ_REMOVE(&ve->values, slist, list);
-			free(slist);
+	char* path_from_root = NULL;
+	
+	/* figure out the referenced file path, relative to the root */
+	if (cur_tupid == root_tupid) {
+		/* we don't want './' paths */
+		path_from_root = malloc(strlen(value) + 1);
+		if(!path_from_root) {
+			perror("malloc");
+			return -1;
 		}
+		strcpy(path_from_root, value);
+	} else {
+		int len = 0;
+		if(get_relative_dir(NULL, root_tupid, cur_tupid, &len) < 0)
+			return -1;
+
+		path_from_root = malloc(len + strlen(value) + 2); /* null + path sep */
+		if(!path_from_root) {
+			perror("malloc");
+			return -1;
+		}
+
+		if(get_relative_dir(path_from_root, root_tupid, cur_tupid, &len) < 0) {
+			free(path_from_root);
+			return -1;
+		}
+	
+		strcpy(path_from_root + len, PATH_SEP_STR);
+		strcpy(path_from_root + len + 1, value);
+	}
+
+	slist = malloc(sizeof *slist);
+	if(!slist) {
+		perror("malloc");
+		free(path_from_root);
+		return -1;
+	}
+	slist->len = strlen(path_from_root);
+	slist->s = malloc(slist->len + 1);
+	if(!slist->s) {
+		perror("malloc");
+		free(slist);
+		free(path_from_root);
+		return -1;
+	}
+	memcpy(slist->s, path_from_root, slist->len);
+	slist->s[slist->len] = 0;
+	TAILQ_INSERT_TAIL(&ve->values, slist, list);
+	ve->count++;
+
+	free(path_from_root);
+	return 0;
+}
+
+int nodedb_set(struct node_vardb *v, const char *var, const char* value,
+	       tupid_t cur_tupid, tupid_t root_tupid)
+{
+	struct node_var_entry *ve = nodedb_get(v, var, strlen(var));
+	if(ve) {
+		free_string_list(&ve->values);
 		ve->count = 0;
 	} else {
 		ve = malloc(sizeof *ve);
@@ -320,7 +373,6 @@ int nodedb_set(struct node_vardb *v, const char *var,
 		memcpy(ve->var.s, var, ve->var.len);
 		ve->var.s[ve->var.len] = 0;
 
-		
 		TAILQ_INIT(&ve->values);
 		ve->count = 0;
 
@@ -332,58 +384,17 @@ int nodedb_set(struct node_vardb *v, const char *var,
 		}
 		v->count++;
 	}
-	
-	slist = malloc(sizeof *slist);
-	if(!slist) {
-		perror("malloc");
-		return -1;
-	}
-	slist->len = strlen(path_from_root);
-	slist->s = malloc(slist->len + 1);
-	if(!slist->s) {
-		perror("malloc");
-		free(slist);
-		return -1;
-	}
-	memcpy(slist->s, path_from_root, slist->len);
-	slist->s[slist->len] = 0;
-	TAILQ_INSERT_TAIL(&ve->values, slist, list);
-	ve->count++;
-	
-	return 0;
+	return nodedb_add_path(ve, value, cur_tupid, root_tupid);
 }
 
-int nodedb_append(struct node_vardb *v, const char *var,
-		  const char* path_from_root)
+int nodedb_append(struct node_vardb *v, const char *var, const char* value,
+	       tupid_t cur_tupid, tupid_t root_tupid)
 {
-	struct string_tree *st;
-	struct string_list *slist;
-
-	// todo - use nodedb_get
-	st = string_tree_search(&v->root, var, strlen(var));
-	if(st) {
-		struct node_var_entry *ve = container_of(st, struct node_var_entry, var);
-		
-		slist = malloc(sizeof *slist);
-		if(!slist) {
-			perror("malloc");
-			return -1;
-		}
-		slist->len = strlen(path_from_root);
-		slist->s = malloc(slist->len + 1);
-		if(!slist->s) {
-			perror("malloc");
-			free(slist);
-			return -1;
-		}
-		memcpy(slist->s, path_from_root, slist->len);
-		slist->s[slist->len] = 0;
-		TAILQ_INSERT_TAIL(&ve->values, slist, list);
-		ve->count++;
-		return 0;
-	} else {
-		return nodedb_set(v, var, path_from_root);
-	}
+	struct node_var_entry *ve = nodedb_get(v, var, strlen(var));
+	if(ve)
+		return nodedb_add_path(ve, value, cur_tupid, root_tupid);
+	else
+		return nodedb_set(v, var, value, cur_tupid, root_tupid);
 }
 
 int nodedb_len(struct node_vardb *v, const char *var, int varlen,
@@ -393,7 +404,6 @@ int nodedb_len(struct node_vardb *v, const char *var, int varlen,
 	int len = 0;
 	int vlen = -1;
 	int first = 0;
-	int rc = -1;
 
 	ve = nodedb_get(v, var, varlen);
 	if(!ve)
@@ -401,22 +411,22 @@ int nodedb_len(struct node_vardb *v, const char *var, int varlen,
 
 	/* we don't want './' paths */
 	if (relative_to != root_tupid) {
-		rc = get_relative_dir(NULL, relative_to, root_tupid, &vlen);
-		if(rc < 0 || vlen < 0) return -1;
+		int rc = get_relative_dir(NULL, relative_to, root_tupid, &vlen);
+		if(rc < 0 || vlen < 0)
+			return -1;
 	}
-	
+
 	struct string_list *slist;
 	TAILQ_FOREACH(slist, &ve->values, list) {
-		if(!first) {
+		if(!first)
 			first = 1;
-		} else {
+		else
 			len += 1;  /* space */
-		}
-		len += slist->len;
 		len += vlen;
 		len += 1;	/* path sep */
+		len += slist->len;
 	}
-	
+
 	return len;
 }
 
@@ -426,7 +436,6 @@ int nodedb_copy(struct node_vardb *v, const char *var, int varlen, char **dest,
 	struct node_var_entry *ve = NULL;
 	int clen = 0;
 	int first = 0;
-	int rc = -1;
 
 	ve = nodedb_get(v, var, varlen);
 	if(!ve)
@@ -444,7 +453,7 @@ int nodedb_copy(struct node_vardb *v, const char *var, int varlen, char **dest,
 		
 		/* we don't want './' paths */
 		if (relative_to != root_tupid) {
-			rc = get_relative_dir(*dest, relative_to, root_tupid, &clen);
+			int rc = get_relative_dir(*dest, relative_to, root_tupid, &clen);
 			if (rc < 0 || clen < 0)
 				return -1;
 			(*dest) += clen;
@@ -452,7 +461,7 @@ int nodedb_copy(struct node_vardb *v, const char *var, int varlen, char **dest,
 			(*dest)++;
 		}
 		
-		strcpy(*dest, slist->s);
+		memcpy(*dest, slist->s, slist->len);
 		(*dest) += slist->len;
 	}
 	
