@@ -26,6 +26,9 @@
 
 #include "entry.h"
 
+#include "variant.h"
+#include "db_types.h"
+
 int vardb_init(struct vardb *v)
 {
 	RB_INIT(&v->root);
@@ -363,7 +366,7 @@ int nodedb_append(struct node_vardb *v, const char *var, struct tup_entry *tent)
 }
 
 int nodedb_len(struct node_vardb *v, const char *var, int varlen,
-               tupid_t relative_to)
+               tupid_t relative_to, struct variant *variant)
 {
 	struct node_var_entry *ve = NULL;
 	int len = 0;
@@ -387,13 +390,26 @@ int nodedb_len(struct node_vardb *v, const char *var, int varlen,
 		                      &vlen);
 		if (rc < 0 || vlen < 0)
 			return -1;
+		
+		/* if we are in a variant and pointing to a tupid outside the variant,
+		 * remove one level of ../ from the path, so that the path refers
+		 * to the same file but within the variant tree
+		 */
+		if(tlist->tent->type == TUP_NODE_FILE) {
+			struct tup_entry *srctent = NULL;
+			if(variant_get_srctent(variant, tlist->tent->tnode.tupid, &srctent) < 0)
+				return -1;
+			if(!srctent) {
+				vlen -= 3;
+			}
+		}
 		len += vlen;
 	}
 	return len;
 }
 
 int nodedb_copy(struct node_vardb *v, const char *var, int varlen, char **dest,
-                tupid_t relative_to)
+                tupid_t relative_to, struct variant *variant)
 {
 	struct node_var_entry *ve = NULL;
 	int clen = 0;
@@ -417,6 +433,30 @@ int nodedb_copy(struct node_vardb *v, const char *var, int varlen, char **dest,
 		                      &clen);
 		if (rc < 0 || clen < 0)
 			return -1;
+		
+		fprintf(stderr, "nodedb_copy: relative_to: %lli, %lli\n",
+			relative_to, tlist->tent->tnode.tupid);
+		
+		/* if we are in a variant and pointing to a tupid outside the variant,
+		 * remove one level of ../ from the path, so that the path refers
+		 * to the same file but within the variant tree
+		 */
+		//if(tlist->tent->type != TUP_NODE_GENERATED && !variant->root_variant) {
+		if(tlist->tent->type == TUP_NODE_FILE) {
+			struct tup_entry *srctent = NULL;
+			if(variant_get_srctent(variant, tlist->tent->tnode.tupid, &srctent) < 0)
+				return -1;
+			if(!srctent) {
+				fprintf(stderr, "nodedb_copy: node is src file outside variant, changing path...\n");
+				fprintf(stderr, "nodedb_copy: orig path : '%.*s'\n", clen, *dest);
+				
+				memmove(*dest, (*dest) + 3, clen - 3);
+				clen -= 3;
+				
+				fprintf(stderr, "nodedb_copy: after path: '%.*s'\n", clen, *dest);
+			}
+		}
+
 		(*dest) += clen;
 	}
 	return 0;

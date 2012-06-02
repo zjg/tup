@@ -905,6 +905,7 @@ static int include_file(struct tupfile *tf, const char *file)
 		goto out_del_pg;
 	}
 	newdt = find_dir_tupid_dt_pg(tf->curtent->tnode.tupid, &pg, &pel, 0, 0);
+	fprintf(stderr, "    /-- newdt = %lli from %lli\n", newdt, tf->curtent->tnode.tupid);
 	if(newdt <= 0) {
 		fprintf(tf->f, "tup error: Unable to find directory for include file relative to '");
 		tup_db_print(tf->f, tf->curtent->tnode.tupid);
@@ -916,7 +917,9 @@ static int include_file(struct tupfile *tf, const char *file)
 		goto out_del_pg;
 	}
 
+	fprintf(stderr, "     /-- curtent = %lli\n", tf->curtent->tnode.tupid);
 	tf->curtent = tup_entry_get(newdt);
+	fprintf(stderr, "     /-- curtent = %lli\n", tf->curtent->tnode.tupid);
 
 	if(variant_get_srctent(tf->variant, newdt, &srctent) < 0)
 		return -1;
@@ -927,6 +930,9 @@ static int include_file(struct tupfile *tf, const char *file)
 		goto out_free_pel;
 	}
 
+	fprintf(stderr, "including '%s' (%lli) with parent %lli (curtent=%lli, srctent=%lli)\n",
+		file, tent->tnode.tupid, tent->parent->tnode.tupid,
+		tf->curtent->tnode.tupid, srctent->tnode.tupid);
 	tf->cur_dfd = tup_entry_openat(tf->root_fd, tent->parent);
 	if (tf->cur_dfd < 0) {
 		parser_error(tf, file);
@@ -1397,6 +1403,8 @@ static int set_variable(struct tupfile *tf, char *line)
 			if(!tent) {
 				fprintf(tf->f, "tup error: Unable to find tup entry for file '%s' in node reference declaration.\n", value);
 				return -1;
+			} else {
+
 			}
 		}
 		/* var+1 to skip the leading '&' */
@@ -3134,7 +3142,7 @@ static char *eval(struct tupfile *tf, const char *string, int allow_nodes)
 
 				var = s + 2;
 				vlen = nodedb_len(&tf->node_db, var, rparen-var,
-				                  tf->curtent->tnode.tupid);
+				                  tf->curtent->tnode.tupid, tf->variant);
 				if (vlen < 0)
 					return NULL;
 				len += vlen;
@@ -3246,7 +3254,7 @@ static char *eval(struct tupfile *tf, const char *string, int allow_nodes)
 
 				var = s + 2;
 				if (nodedb_copy(&tf->node_db, var, rparen-var, &p,
-				                tf->curtent->tnode.tupid) < 0)
+				                tf->curtent->tnode.tupid, tf->variant) < 0)
 					return NULL;
 				s = rparen + 1;
 			} else {

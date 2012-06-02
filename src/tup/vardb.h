@@ -26,6 +26,7 @@
 #include "string_tree.h"
 
 struct tup_entry;
+struct variant;
 
 struct vardb {
 	struct string_entries root;
@@ -75,9 +76,9 @@ int nodedb_set(struct node_vardb *v, const char *var,
 int nodedb_append(struct node_vardb *v, const char *var,
                   struct tup_entry *tent);
 int nodedb_len(struct node_vardb *v, const char *var, int varlen,
-               tupid_t relative_to);
+               tupid_t relative_to, struct variant *variant);
 int nodedb_copy(struct node_vardb *v, const char *var, int varlen,
-                char **dest, tupid_t relative_to);
+                char **dest, tupid_t relative_to, struct variant *variant);
 struct node_var_entry *nodedb_get(struct node_vardb *v,
                                   const char *var, int varlen);
 
